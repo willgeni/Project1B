@@ -5,6 +5,11 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using System;
 using System.Reflection;
+using BepuPhysics;
+using BepuUtilities;
+using BepuUtilities.Memory;
+using Matrix = Microsoft.Xna.Framework.Matrix;
+using MathHelper = Microsoft.Xna.Framework.MathHelper;
 
 namespace ModelDisplay1
 {
@@ -26,6 +31,11 @@ namespace ModelDisplay1
 
         Vector3 modelVelocity = Vector3.Zero;
 
+        BufferPool _bufferPool;
+        Simulation _physicsSimulation;
+        PhysicsMaterialRegistry _materialRegistry;
+        PhysicsObject _playerShip;
+
         SoundEffect soundEngine;
         SoundEffect soundHyperspaceActivation;
 
@@ -41,6 +51,16 @@ namespace ModelDisplay1
 
         protected override void Initialize()
         {
+            _bufferPool = new BufferPool();
+            _materialRegistry = new PhysicsMaterialRegistry();
+
+            // Create simulation
+            _physicsSimulation = Simulation.Create(
+                _bufferPool,
+                new SimpleNarrowPhaseCallbacks(),
+                new SimplePostIntegratorCallbacks(),
+                new SolveDescription(8, 1)
+            );
             base.Initialize();
         }
 
@@ -60,6 +80,17 @@ namespace ModelDisplay1
             soundHyperspaceActivation = Content.Load<SoundEffect>("Audio\\hyperspace_activate");
 
             soundEngineInstance = soundEngine.CreateInstance();
+
+            _playerShip = PhysicsShapeFactory.CreateDynamicPhysicsObject(
+                myModel,
+                _physicsSimulation,
+                _bufferPool,
+                _materialRegistry,
+                new System.Numerics.Vector3(0, 0, 0),
+                10f, // mass
+                false,
+                out bool usedFallback
+            );
         }
 
         protected override void Update(GameTime gameTime)
@@ -70,11 +101,7 @@ namespace ModelDisplay1
             // Get some input.
             UpdateInput();
 
-            // Add velocity to the current position.
-            modelPosition += modelVelocity * (float) gameTime.ElapsedGameTime.TotalSeconds;
-
-            // Bleed off velocity over time.
-            modelVelocity *= 0.99f;
+            _physicsSimulation.Timestep(1f / 60f); // 60 FPS timestep
 
             base.Update(gameTime);
         }
@@ -134,14 +161,13 @@ namespace ModelDisplay1
 
             if (currentKeyState.IsKeyDown(Keys.W))
             {
-                Vector3 modelVelocityAdd = Vector3.Zero;
+                var shipBody = _physicsSimulation.Bodies.GetBodyReference(_playerShip.BodyHandle.Value);
 
-                // Find out what direction we should be thrusting, 
-                // using rotation.
-                modelVelocityAdd.X = (float)Math.Sin(modelRotation);
-                modelVelocityAdd.Z = (float)Math.Cos(modelRotation);
-                modelVelocity += modelVelocityAdd*10;
-                engineon = true;
+                shipBody.Awake = true;
+                float thrustX = (float)Math.Sin(modelRotation);
+                float thrustZ = (float)Math.Cos(modelRotation);
+
+                shipBody.ApplyLinearImpulse(new System.Numerics.Vector3(thrustX * 10f, 0, thrustZ * 10f));
             }
 
             if (currentKeyState.IsKeyDown(Keys.X))
@@ -184,9 +210,9 @@ namespace ModelDisplay1
                 foreach (BasicEffect effect in mesh.Effects)
                 {
                     effect.EnableDefaultLighting();
-                    effect.World =
-                        Matrix.CreateRotationY(modelRotation)
-                        * Matrix.CreateTranslation(modelPosition);
+
+                    effect.World = _playerShip.GetWorldMatrix();
+
                     effect.View = Matrix.CreateLookAt(cameraPosition,
                         Vector3.Zero, Vector3.Up);
                     effect.Projection = Matrix.CreatePerspectiveFieldOfView(
