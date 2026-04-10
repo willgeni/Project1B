@@ -198,6 +198,16 @@ namespace ModelDisplay1
         protected override void Draw(GameTime gameTime)
         {
             GraphicsDevice.Clear(Color.CornflowerBlue);
+            
+            // Ship's current position & orientation from physics engine
+            Matrix shipWorld = _playerShip.GetWorldMatrix();
+            Vector3 shipPosition = shipWorld.Translation;
+            Vector3 shipForward = shipWorld.Forward;
+            Vector3 shipUp = shipWorld.Up;
+
+            // Get a behind-the-ship camera position
+            Vector3 cameraPos = shipPosition - (shipForward * 500) + (shipUp * 200);
+            Vector3 cameraTarget = shipPosition + (shipForward * 500);
 
             foreach (ModelMesh mesh in myModel.Meshes)
             {
@@ -206,11 +216,11 @@ namespace ModelDisplay1
                 foreach (BasicEffect effect in mesh.Effects)
                 {
                     effect.EnableDefaultLighting();
+                    effect.World = shipWorld;
 
-                    effect.World = _playerShip.GetWorldMatrix();
-
-                    effect.View = Matrix.CreateLookAt(cameraPosition,
-                        Vector3.Zero, Vector3.Up);
+                    // Update view to follow the ship
+                    effect.View = Matrix.CreateLookAt(cameraPos, cameraTarget, shipUp);
+                    
                     effect.Projection = Matrix.CreatePerspectiveFieldOfView(
                         MathHelper.ToRadians(45.0f), aspectRatio,
                         1.0f, 10000.0f);
