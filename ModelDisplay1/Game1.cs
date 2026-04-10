@@ -10,6 +10,7 @@ using BepuUtilities;
 using BepuUtilities.Memory;
 using Matrix = Microsoft.Xna.Framework.Matrix;
 using MathHelper = Microsoft.Xna.Framework.MathHelper;
+using System.Collections.Generic;
 
 namespace ModelDisplay1
 {
@@ -29,6 +30,13 @@ namespace ModelDisplay1
         Simulation _physicsSimulation;
         PhysicsMaterialRegistry _materialRegistry;
         PhysicsObject _playerShip;
+
+        private Model ringModel;
+        private List<RaceRing> courseRings = new();
+        private int currentRingIndex = 0;
+        private int ringsMissed = 0;
+
+        // UI Variables: TODO next time & fix rotation issues
 
         SoundEffect soundEngine;
         SoundEffect soundHyperspaceActivation;
@@ -62,7 +70,7 @@ namespace ModelDisplay1
         {
             _spriteBatch = new SpriteBatch(GraphicsDevice);
 
-            myModel = Content.Load<Model>("Models\\lego spaceship");
+            myModel = Content.Load<Model>("Models\\CandyShip");
             _graphics.PreferredBackBufferWidth = 1280;
             _graphics.PreferredBackBufferHeight = 720;
             _graphics.ApplyChanges();
@@ -85,6 +93,32 @@ namespace ModelDisplay1
                 false,
                 out bool usedFallback
             );
+        
+            ringModel = Content.Load<Model>("Models\\Ring");
+
+            for (int i  = 0; i < 7; i++)
+            {
+                // Space rings out along the Z axis
+                Vector3 spawnPosition = new Vector3(0, 0, -(i + 1) * 100f);
+                bool usedMeshFallback;
+                var ringPhysics = PhysicsShapeFactory.CreateStaticPhysicsObject(
+                    ringModel,
+                    _physicsSimulation,
+                    _bufferPool,
+                    _materialRegistry,
+                    new System.Numerics.Vector3(spawnPosition.X, spawnPosition.Y, spawnPosition.Z),
+                    true, // Force mesh so we can fly through hole in the middle
+                    out usedMeshFallback
+                );
+
+                courseRings.Add(new RaceRing(ringPhysics, spawnPosition, 25f));
+            }
+
+            // Highlight the first ring
+            if (courseRings.Count > 0)
+            {
+                courseRings[0].IsNext = true;
+            }
         }
 
         protected override void Update(GameTime gameTime)
@@ -96,6 +130,44 @@ namespace ModelDisplay1
             UpdateInput();
 
             _physicsSimulation.Timestep(1f / 60f); // 60 FPS timestep
+
+            if (currentRingIndex < courseRings.Count)
+            {
+                var currentRing = courseRings[currentRingIndex];
+                // Ship's current position
+                var shipPose = _physicsSimulation.Bodies.
+                    GetBodyReference(_playerShip.BodyHandle.Value).Pose;
+                Vector3 shipPos = new Vector3(shipPose.Position.X, shipPose.Position.Y, shipPose.Position.Z);
+
+                // Calculate distance from center of the ring
+                float distance = Vector3.Distance(shipPos, currentRing.Position);
+
+                if (distance < currentRing.Radius)
+                {
+                    // Passed through the ring
+                    currentRing.WasCollected = true;
+                    currentRing.IsNext = false;
+                    currentRingIndex++;
+
+                    // Highlight next ring
+                    if (currentRingIndex < courseRings.Count)
+                    {
+                        courseRings[currentRingIndex].IsNext = true;
+                    }
+                } else if (shipPos.Z > currentRing.Position.Z + 200f)
+                {
+                    // Missed the ring
+                    ringsMissed++;
+                    currentRing.IsNext = false;
+                    currentRingIndex++;
+
+                    // Highlight next ring
+                    if (currentRingIndex < courseRings.Count)
+                    {
+                        courseRings[currentRingIndex].IsNext = true;
+                    }
+                }
+            }
 
             base.Update(gameTime);
         }
@@ -110,7 +182,7 @@ namespace ModelDisplay1
             shipBody.Awake = true;
 
             System.Numerics.Vector3 localAngularImpulse = System.Numerics.Vector3.Zero;
-            float rotationSpeed = 2.0f; // Adjust to make the ship more/less sensitive
+            float rotationSpeed = 0.01f; // Adjust to make the ship more/less sensitive
 
             // Yaw (Left/Right)
             if (currentKeyState.IsKeyDown(Keys.A)) localAngularImpulse.Y += rotationSpeed;
@@ -132,7 +204,7 @@ namespace ModelDisplay1
                 // Thrust with triggers
                 if (currentGamePadState.Triggers.Right > 0)
                 {
-                    ApplyThrust(shipBody, currentGamePadState.Triggers.Right * 15f);
+                    ApplyThrust(shipBody, currentGamePadState.Triggers.Right * 5f);
                     engineon = true;
                 }
             }
@@ -148,7 +220,7 @@ namespace ModelDisplay1
             // Thrust with keyboard
             if (currentKeyState.IsKeyDown(Keys.W))
             {
-                ApplyThrust(shipBody, 15f);
+                ApplyThrust(shipBody, 5f);
                 engineon = true;
             }
 
@@ -168,7 +240,7 @@ namespace ModelDisplay1
         // Helper method to apply thrust in the forward direction of the ship
         private void ApplyThrust(BepuPhysics.BodyReference body, float force)
         {
-            System.Numerics.Vector3 localForward = new(0, 0, 1);
+            System.Numerics.Vector3 localForward = new(0, 0, -1);
             System.Numerics.Vector3 worldForward = System.Numerics.Vector3.Transform(localForward, body.Pose.Orientation);
             body.ApplyLinearImpulse(worldForward * force);
         }
@@ -197,7 +269,7 @@ namespace ModelDisplay1
 
         protected override void Draw(GameTime gameTime)
         {
-            GraphicsDevice.Clear(Color.CornflowerBlue);
+            GraphicsDevice.Clear(Color.Black);
             
             // Ship's current position & orientation from physics engine
             Matrix shipWorld = _playerShip.GetWorldMatrix();
@@ -206,9 +278,10 @@ namespace ModelDisplay1
             Vector3 shipUp = shipWorld.Up;
 
             // Get a behind-the-ship camera position
-            Vector3 cameraPos = shipPosition - (shipForward * 500) + (shipUp * 200);
-            Vector3 cameraTarget = shipPosition + (shipForward * 500);
+            Vector3 cameraPos = shipPosition - (shipForward * 5) + (shipUp * 2);
+            Vector3 cameraTarget = shipPosition + (shipForward * 10);
 
+            // Draw the ship
             foreach (ModelMesh mesh in myModel.Meshes)
             {
                 // This is where the mesh orientation is set, as well 
@@ -220,7 +293,7 @@ namespace ModelDisplay1
 
                     // Update view to follow the ship
                     effect.View = Matrix.CreateLookAt(cameraPos, cameraTarget, shipUp);
-                    
+
                     effect.Projection = Matrix.CreatePerspectiveFieldOfView(
                         MathHelper.ToRadians(45.0f), aspectRatio,
                         1.0f, 10000.0f);
@@ -228,6 +301,17 @@ namespace ModelDisplay1
                 // Draw the mesh, using the effects set above.
                 mesh.Draw();
             }
+
+            // Draw the rings
+            Matrix viewMatrix = Matrix.CreateLookAt(cameraPos, cameraTarget, shipUp);
+            Matrix projMatrix = Matrix.CreatePerspectiveFieldOfView(
+                        MathHelper.ToRadians(45.0f), aspectRatio,
+                        1.0f, 10000.0f);
+            foreach (var ring in courseRings)
+            {
+                ring.Draw(viewMatrix, projMatrix, cameraPos);
+            }
+
             base.Draw(gameTime);
         }
     }
