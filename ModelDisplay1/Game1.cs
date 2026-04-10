@@ -22,14 +22,8 @@ namespace ModelDisplay1
 
         float aspectRatio;  // Holds the aspect ratio of the display for efficency
 
-        Vector3 modelPosition = Vector3.Zero;  // The model position in 3 space 
-
-        float modelRotation = 0.0f;  // The model rotation in 3 space
-
         // Create and set the position of the camera in world space, for our view matrix.
         Vector3 cameraPosition = new Vector3(0.0f, 0.0f, -1500.0f);
-
-        Vector3 modelVelocity = Vector3.Zero;
 
         BufferPool _bufferPool;
         Simulation _physicsSimulation;
@@ -112,81 +106,84 @@ namespace ModelDisplay1
             GamePadState currentGamePadState = GamePad.GetState(PlayerIndex.One);
 
             bool engineon = false;
+            var shipBody = _physicsSimulation.Bodies.GetBodyReference(_playerShip.BodyHandle.Value);
+            shipBody.Awake = true;
+
+            System.Numerics.Vector3 localAngularImpulse = System.Numerics.Vector3.Zero;
+            float rotationSpeed = 2.0f; // Adjust to make the ship more/less sensitive
+
+            // Yaw (Left/Right)
+            if (currentKeyState.IsKeyDown(Keys.A)) localAngularImpulse.Y += rotationSpeed;
+            if (currentKeyState.IsKeyDown(Keys.D)) localAngularImpulse.Y -= rotationSpeed;
+            // Pitch (Up/Down)
+            if (currentKeyState.IsKeyDown(Keys.Up)) localAngularImpulse.X += rotationSpeed;
+            if (currentKeyState.IsKeyDown(Keys.Down)) localAngularImpulse.X -= rotationSpeed;
+            // Roll
+            if (currentKeyState.IsKeyDown(Keys.Q)) localAngularImpulse.Z += rotationSpeed;
+            if (currentKeyState.IsKeyDown(Keys.E)) localAngularImpulse.Z -= rotationSpeed;
 
             if (currentGamePadState.IsConnected)
             {
-                // Rotate the model using the left thumbstick, and scale it down
+                // Use thumbsticks for steering behavior (angular impulse)
+                localAngularImpulse.Y -= currentGamePadState.ThumbSticks.Left.X * rotationSpeed;
+                localAngularImpulse.X += currentGamePadState.ThumbSticks.Left.Y * rotationSpeed;
+                localAngularImpulse.Z += (currentGamePadState.Triggers.Left - currentGamePadState.Triggers.Right) * rotationSpeed;
 
-                modelRotation -= currentGamePadState.ThumbSticks.Left.X * 0.10f;
-
-                // Create some velocity if the right trigger is down.
-                Vector3 modelVelocityAdd = Vector3.Zero;
-
-                // Find out what direction we should be thrusting, 
-                // using rotation.
-                modelVelocityAdd.X = (float)Math.Sin(modelRotation);
-                modelVelocityAdd.Z = (float)Math.Cos(modelRotation);
-
-                // Now scale our direction by how hard the trigger is down.
-                modelVelocityAdd *= currentGamePadState.Triggers.Right;
-
-                if (currentGamePadState.Triggers.Right != 0f)
+                // Thrust with triggers
+                if (currentGamePadState.Triggers.Right > 0)
                 {
+                    ApplyThrust(shipBody, currentGamePadState.Triggers.Right * 15f);
                     engineon = true;
                 }
-
-                // Finally, add this vector to our velocity.
-                modelVelocity += modelVelocityAdd;
-
-                GamePad.SetVibration(PlayerIndex.One,
-                    currentGamePadState.Triggers.Right,
-                    currentGamePadState.Triggers.Right);
-
-
-                // In case you get lost, press A to warp back to the center.
-                if (currentGamePadState.Buttons.A == ButtonState.Pressed)
-                {
-                    modelPosition = Vector3.Zero;
-                    modelVelocity = Vector3.Zero;
-                    modelRotation = 0.0f;
-                }
             }
 
-            if (currentKeyState.IsKeyDown(Keys.A))
-                modelRotation += 0.10f;
+            // Apply angular impulse if there's any input
+            if (localAngularImpulse != System.Numerics.Vector3.Zero)
+            {
+                // Transform local rotation intent into world space using the ship's current orientation
+                var worldAngularImpulse = System.Numerics.Vector3.Transform(localAngularImpulse, shipBody.Pose.Orientation);
+                shipBody.ApplyAngularImpulse(worldAngularImpulse);
+            }
 
-            if (currentKeyState.IsKeyDown(Keys.D))
-                modelRotation -= 0.10f;
-
-
+            // Thrust with keyboard
             if (currentKeyState.IsKeyDown(Keys.W))
             {
-                var shipBody = _physicsSimulation.Bodies.GetBodyReference(_playerShip.BodyHandle.Value);
-
-                shipBody.Awake = true;
-                float thrustX = (float)Math.Sin(modelRotation);
-                float thrustZ = (float)Math.Cos(modelRotation);
-
-                shipBody.ApplyLinearImpulse(new System.Numerics.Vector3(thrustX * 10f, 0, thrustZ * 10f));
+                ApplyThrust(shipBody, 15f);
+                engineon = true;
             }
 
-            if (currentKeyState.IsKeyDown(Keys.X))
+            // Hyperspace jump - reset position and velocity
+            if (currentKeyState.IsKeyDown(Keys.X) || currentGamePadState.Buttons.Start == ButtonState.Pressed) 
             {
-                modelPosition = Vector3.Zero;
-                modelVelocity = Vector3.Zero;
-                modelRotation = 0.0f;
+                shipBody.Pose.Position = System.Numerics.Vector3.Zero;
+                shipBody.Velocity.Linear = System.Numerics.Vector3.Zero;
+                shipBody.Velocity.Angular = System.Numerics.Vector3.Zero;
+                shipBody.Pose.Orientation = System.Numerics.Quaternion.Identity;
                 soundHyperspaceActivation.Play();
             }
 
-            if (engineon)
+            UpdateEngineSound(engineon);
+        }
+
+        // Helper method to apply thrust in the forward direction of the ship
+        private void ApplyThrust(BepuPhysics.BodyReference body, float force)
+        {
+            System.Numerics.Vector3 localForward = new(0, 0, 1);
+            System.Numerics.Vector3 worldForward = System.Numerics.Vector3.Transform(localForward, body.Pose.Orientation);
+            body.ApplyLinearImpulse(worldForward * force);
+        }
+
+        // Helper method to manage engine sound based on whether the engine is on or off
+        private void UpdateEngineSound(bool engineOn)
+        {
+            if (engineOn)
             {
                 if (soundEngineInstance.State == SoundState.Stopped)
                 {
                     soundEngineInstance.Volume = 0.75f;
                     soundEngineInstance.IsLooped = true;
                     soundEngineInstance.Play();
-                }
-                else
+                } else
                 {
                     soundEngineInstance.Resume();
                 }
@@ -195,7 +192,6 @@ namespace ModelDisplay1
             {
                 soundEngineInstance.Pause();
             }
-
         }
 
 
