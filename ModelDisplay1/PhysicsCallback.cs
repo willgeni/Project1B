@@ -28,7 +28,7 @@ namespace ModelDisplay1
         public void Initialize(Simulation simulation) { }
         
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool AllowContactGeneration(int workerIndex, CollidableReference a, CollidableReference b, ref float speculativeMargin) => true;
+        public bool AllowContactGeneration(int workerIndex, CollidableReference a, CollidableReference b, ref float speculativeMargin) => false;
         
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool AllowContactGeneration(int workerIndex, CollidablePair pair, int childIndexA, int childIndexB) => true;

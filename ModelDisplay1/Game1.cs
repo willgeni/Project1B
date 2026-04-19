@@ -36,7 +36,10 @@ namespace ModelDisplay1
         private int currentRingIndex = 0;
         private int ringsMissed = 0;
 
-        // UI Variables: TODO next time & fix rotation issues
+        // UI Variables
+        private SpriteFont uiFont;
+        private float raceTimer = 0f;
+        private bool raceFinished = false;
 
         SoundEffect soundEngine;
         SoundEffect soundHyperspaceActivation;
@@ -69,6 +72,7 @@ namespace ModelDisplay1
         protected override void LoadContent()
         {
             _spriteBatch = new SpriteBatch(GraphicsDevice);
+            uiFont = Content.Load<SpriteFont>("UIFont");
 
             myModel = Content.Load<Model>("Models\\CandyShip");
             _graphics.PreferredBackBufferWidth = 1280;
@@ -131,6 +135,9 @@ namespace ModelDisplay1
 
             _physicsSimulation.Timestep(1f / 60f); // 60 FPS timestep
 
+            if (!raceFinished) raceTimer += (float)gameTime.ElapsedGameTime.TotalSeconds;
+            if (currentRingIndex >= courseRings.Count) raceFinished = true;
+
             if (currentRingIndex < courseRings.Count)
             {
                 var currentRing = courseRings[currentRingIndex];
@@ -154,7 +161,7 @@ namespace ModelDisplay1
                     {
                         courseRings[currentRingIndex].IsNext = true;
                     }
-                } else if (shipPos.Z > currentRing.Position.Z + 200f)
+                } else if (shipPos.Z < currentRing.Position.Z - 50f)
                 {
                     // Missed the ring
                     ringsMissed++;
@@ -182,7 +189,7 @@ namespace ModelDisplay1
             shipBody.Awake = true;
 
             System.Numerics.Vector3 localAngularImpulse = System.Numerics.Vector3.Zero;
-            float rotationSpeed = 0.01f; // Adjust to make the ship more/less sensitive
+            float rotationSpeed = 0.005f; // Adjust to make the ship more/less sensitive
 
             // Yaw (Left/Right)
             if (currentKeyState.IsKeyDown(Keys.A)) localAngularImpulse.Y += rotationSpeed;
@@ -216,6 +223,8 @@ namespace ModelDisplay1
                 var worldAngularImpulse = System.Numerics.Vector3.Transform(localAngularImpulse, shipBody.Pose.Orientation);
                 shipBody.ApplyAngularImpulse(worldAngularImpulse);
             }
+
+            shipBody.ApplyAngularImpulse(-shipBody.Velocity.Angular * 0.005f);
 
             // Thrust with keyboard
             if (currentKeyState.IsKeyDown(Keys.W))
@@ -311,6 +320,19 @@ namespace ModelDisplay1
             {
                 ring.Draw(viewMatrix, projMatrix, cameraPos);
             }
+
+            // HUD Drawing
+            
+            _spriteBatch.Begin();
+            _spriteBatch.DrawString(uiFont, $"Time: {Math.Round(raceTimer, 2)}s", new Vector2(20, 20), Color.White);
+            _spriteBatch.DrawString(uiFont, $"Rings Missed: {ringsMissed}", new Vector2(20, 50), Color.Red);
+            if (raceFinished) _spriteBatch.DrawString(uiFont, "RACE COMPLETE!", new Vector2(500, 300), Color.Yellow);
+            _spriteBatch.End();
+
+            GraphicsDevice.BlendState = BlendState.Opaque;
+            GraphicsDevice.DepthStencilState = DepthStencilState.Default;
+            GraphicsDevice.SamplerStates[0] = SamplerState.LinearWrap;
+            
 
             base.Draw(gameTime);
         }
