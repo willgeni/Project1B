@@ -20,6 +20,7 @@ namespace ModelDisplay1
         private SpriteBatch _spriteBatch;
 
         private Model myModel;  // Holds the spaceship model
+        private Texture2D shipTexture;  // Holds the spaceship texture
 
         float aspectRatio;  // Holds the aspect ratio of the display for efficency
 
@@ -32,6 +33,7 @@ namespace ModelDisplay1
         PhysicsObject _playerShip;
 
         private Model ringModel;
+        private Texture2D ringTexture;
         private List<RaceRing> courseRings = new();
         private int currentRingIndex = 0;
         private int ringsMissed = 0;
@@ -40,6 +42,8 @@ namespace ModelDisplay1
         private SpriteFont uiFont;
         private float raceTimer = 0f;
         private bool raceFinished = false;
+        private Model skyboxModel;
+        private Texture2D spaceTexture;
 
         SoundEffect soundEngine;
         SoundEffect soundHyperspaceActivation;
@@ -73,6 +77,9 @@ namespace ModelDisplay1
         {
             _spriteBatch = new SpriteBatch(GraphicsDevice);
             uiFont = Content.Load<SpriteFont>("UIFont");
+            skyboxModel = Content.Load<Model>("Models\\sphere");
+            spaceTexture = Content.Load<Texture2D>("Models\\space");
+            shipTexture = Content.Load<Texture2D>("Models\\candycruiser_tex");
 
             myModel = Content.Load<Model>("Models\\CandyShip");
             _graphics.PreferredBackBufferWidth = 1280;
@@ -99,11 +106,15 @@ namespace ModelDisplay1
             );
         
             ringModel = Content.Load<Model>("Models\\Ring");
+            ringTexture = Content.Load<Texture2D>("Models\\RingTexture");
 
             for (int i  = 0; i < 7; i++)
             {
+                float xOffset = (float)Math.Sin(i) * 10f;
+                float yOffset = (float)Math.Cos(i) * 1.25f;
+
                 // Space rings out along the Z axis
-                Vector3 spawnPosition = new Vector3(0, 0, -(i + 1) * 100f);
+                Vector3 spawnPosition = new Vector3(xOffset, yOffset, -(i + 1) * 45f);
                 bool usedMeshFallback;
                 var ringPhysics = PhysicsShapeFactory.CreateStaticPhysicsObject(
                     ringModel,
@@ -115,7 +126,7 @@ namespace ModelDisplay1
                     out usedMeshFallback
                 );
 
-                courseRings.Add(new RaceRing(ringPhysics, spawnPosition, 25f));
+                courseRings.Add(new RaceRing(ringPhysics, spawnPosition, 5f, ringTexture));
             }
 
             // Highlight the first ring
@@ -146,29 +157,28 @@ namespace ModelDisplay1
                     GetBodyReference(_playerShip.BodyHandle.Value).Pose;
                 Vector3 shipPos = new Vector3(shipPose.Position.X, shipPose.Position.Y, shipPose.Position.Z);
 
-                // Calculate distance from center of the ring
-                float distance = Vector3.Distance(shipPos, currentRing.Position);
-
-                if (distance < currentRing.Radius)
+                if (shipPos.Z < currentRing.Position.Z)
                 {
-                    // Passed through the ring
-                    currentRing.WasCollected = true;
-                    currentRing.IsNext = false;
-                    currentRingIndex++;
+                    // Crossed ring's threshold
+                    Vector2 shipXY = new Vector2(shipPos.X, shipPos.Y);
+                    Vector2 ringXY = new Vector2(currentRing.Position.X, currentRing.Position.Y);
 
-                    // Highlight next ring
-                    if (currentRingIndex < courseRings.Count)
+                    float distanceXY = Vector2.Distance(shipXY, ringXY);
+
+                    if (distanceXY < currentRing.Radius)
                     {
-                        courseRings[currentRingIndex].IsNext = true;
+                        // Perfect hit
+                        currentRing.WasCollected = true;
+                    } else
+                    {
+                        // Missed
+                        ringsMissed++;
+                        currentRing.WasCollected = true; // Set to true so it disappears
                     }
-                } else if (shipPos.Z < currentRing.Position.Z - 50f)
-                {
-                    // Missed the ring
-                    ringsMissed++;
+
                     currentRing.IsNext = false;
                     currentRingIndex++;
 
-                    // Highlight next ring
                     if (currentRingIndex < courseRings.Count)
                     {
                         courseRings[currentRingIndex].IsNext = true;
@@ -189,7 +199,7 @@ namespace ModelDisplay1
             shipBody.Awake = true;
 
             System.Numerics.Vector3 localAngularImpulse = System.Numerics.Vector3.Zero;
-            float rotationSpeed = 0.005f; // Adjust to make the ship more/less sensitive
+            float rotationSpeed = 0.0025f; // Adjust to make the ship more/less sensitive
 
             // Yaw (Left/Right)
             if (currentKeyState.IsKeyDown(Keys.A)) localAngularImpulse.Y += rotationSpeed;
@@ -229,7 +239,7 @@ namespace ModelDisplay1
             // Thrust with keyboard
             if (currentKeyState.IsKeyDown(Keys.W))
             {
-                ApplyThrust(shipBody, 5f);
+                ApplyThrust(shipBody, 1f);
                 engineon = true;
             }
 
@@ -290,6 +300,34 @@ namespace ModelDisplay1
             Vector3 cameraPos = shipPosition - (shipForward * 5) + (shipUp * 2);
             Vector3 cameraTarget = shipPosition + (shipForward * 10);
 
+            // Draw the skybox
+            // Disable depth buffer and culling so we see inside of the skybox
+            GraphicsDevice.DepthStencilState = DepthStencilState.None;
+            GraphicsDevice.RasterizerState = RasterizerState.CullNone;
+
+            foreach (ModelMesh mesh in skyboxModel.Meshes)
+            {
+                foreach (BasicEffect effect in skyboxModel.Meshes[0].Effects)
+                {
+                    effect.LightingEnabled = false;
+                    effect.TextureEnabled = true;
+                    effect.Texture = spaceTexture;
+
+                    effect.DiffuseColor = Vector3.One;
+                    effect.EmissiveColor = Vector3.One;
+
+                    effect.World = Matrix.CreateScale(1000f) * Matrix.CreateTranslation(cameraPos);
+                    effect.View = Matrix.CreateLookAt(cameraPos, cameraTarget, shipUp);
+                    effect.Projection = Matrix.CreatePerspectiveFieldOfView(
+                        MathHelper.ToRadians(45.0f), aspectRatio,
+                        1.0f, 10000.0f);
+                }
+                mesh.Draw();
+            }
+
+            GraphicsDevice.DepthStencilState = DepthStencilState.Default;
+            GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
+
             // Draw the ship
             foreach (ModelMesh mesh in myModel.Meshes)
             {
@@ -298,6 +336,9 @@ namespace ModelDisplay1
                 foreach (BasicEffect effect in mesh.Effects)
                 {
                     effect.EnableDefaultLighting();
+                    effect.TextureEnabled = true;
+                    effect.Texture = shipTexture;
+
                     effect.World = shipWorld;
 
                     // Update view to follow the ship

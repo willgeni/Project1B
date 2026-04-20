@@ -11,12 +11,14 @@ namespace ModelDisplay1
         public float Radius { get; private set; }
         public bool IsNext { get; set; }
         public bool WasCollected { get; set; }
+        public Texture2D RingTexture { get; private set; }
 
-        public RaceRing(PhysicsObject physicsBody, Vector3 position, float radius)
+        public RaceRing(PhysicsObject physicsBody, Vector3 position, float radius, Texture2D ringTexture)
         {
             PhysicsBody = physicsBody;
             Position = position;
             Radius = radius;
+            RingTexture = ringTexture;
             IsNext = false;
             WasCollected = false;
         }
@@ -32,6 +34,8 @@ namespace ModelDisplay1
                     effect.World = Matrix.CreateTranslation(Position);
                     effect.View = view;
                     effect.Projection = projection;
+                    effect.TextureEnabled = true;
+                    effect.Texture = RingTexture;
 
                     // Accet color for the next ring to collect
                     if (IsNext)
