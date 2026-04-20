@@ -37,6 +37,7 @@ namespace ModelDisplay1
         private List<RaceRing> courseRings = new();
         private int currentRingIndex = 0;
         private int ringsMissed = 0;
+        private int finalScore = 0;
 
         // UI Variables
         private SpriteFont uiFont;
@@ -146,8 +147,18 @@ namespace ModelDisplay1
 
             _physicsSimulation.Timestep(1f / 60f); // 60 FPS timestep
 
-            if (!raceFinished) raceTimer += (float)gameTime.ElapsedGameTime.TotalSeconds;
-            if (currentRingIndex >= courseRings.Count) raceFinished = true;
+            if (!raceFinished)
+            {
+                raceTimer += (float)gameTime.ElapsedGameTime.TotalSeconds;
+
+                if (currentRingIndex >= courseRings.Count)
+                {
+                    raceFinished = true;
+                    // Base score of 5k
+                    // -50 per 10 seconds & -500 per missed ring
+                    finalScore = (int)Math.Max(0, 5000 - (raceTimer * 5) - (ringsMissed * 500));
+                }
+            }
 
             if (currentRingIndex < courseRings.Count)
             {
@@ -316,7 +327,7 @@ namespace ModelDisplay1
                     effect.DiffuseColor = Vector3.One;
                     effect.EmissiveColor = Vector3.One;
 
-                    effect.World = Matrix.CreateScale(1000f) * Matrix.CreateTranslation(cameraPos);
+                    effect.World = Matrix.CreateScale(50f) * Matrix.CreateTranslation(cameraPos);
                     effect.View = Matrix.CreateLookAt(cameraPos, cameraTarget, shipUp);
                     effect.Projection = Matrix.CreatePerspectiveFieldOfView(
                         MathHelper.ToRadians(45.0f), aspectRatio,
@@ -367,7 +378,11 @@ namespace ModelDisplay1
             _spriteBatch.Begin();
             _spriteBatch.DrawString(uiFont, $"Time: {Math.Round(raceTimer, 2)}s", new Vector2(20, 20), Color.White);
             _spriteBatch.DrawString(uiFont, $"Rings Missed: {ringsMissed}", new Vector2(20, 50), Color.Red);
-            if (raceFinished) _spriteBatch.DrawString(uiFont, "RACE COMPLETE!", new Vector2(500, 300), Color.Yellow);
+            if (raceFinished) 
+            {
+                _spriteBatch.DrawString(uiFont, "RACE COMPLETE!", new Vector2(500, 300), Color.Yellow);
+                _spriteBatch.DrawString(uiFont, $"FINAL SCORE: {finalScore}", new Vector2(500, 340), Color.Cyan);
+            }
             _spriteBatch.End();
 
             GraphicsDevice.BlendState = BlendState.Opaque;
